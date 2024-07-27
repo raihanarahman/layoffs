@@ -1,0 +1,485 @@
+---
+title: "Data Exploration Project"
+format: pdf
+editor: visual
+---
+
+## Data Exploration Project
+
+In this project, I will be cleaning up and displaying data from a dataset on layoffs from companies around the world.
+
+## Cleaning Up
+
+First, I will import the data set and start to explore the various pieces of information I have. Next, I want to make sure that my various pieces of information are the correct type–specifically, I would like for my integers/numbers to be integers/numbers instead of chr datatypes. This can make things easier for me to do work with my data.
+
+Specifically, my goal is to look for any gaps in the data that might pose an issue. This includes:
+
+-   looking for duplicates
+
+-   standardize data, ensuring that similar cities are formatted the same way (NYC versus New York versus New York City)
+
+-   Analyze the blank/null values and ensure that they are properly assigned. If necessary, assign other values NULL
+
+-   Other oddities I find in the data
+
+### Read in the data, and change the types from chr -\> int
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(moderndive)
+library(broom)
+layoffs_staging <- read_csv("/Users/rrahman/Downloads/layoffs.csv")
+
+# check to see how many unique values 
+# are in the dataset for the number of 
+# people laid off. 
+layoffs_staging  %>% 
+  count(total_laid_off) %>% 
+  arrange(total_laid_off)
+
+# cast the total_laid_off and funds_raised_millions 
+# columns from chr to integer 
+layoffs_staging$total_laid_off <- as.integer(layoffs_staging$total_laid_off)
+layoffs_staging$funds_raised_millions <- as.integer(layoffs_staging$funds_raised_millions)
+
+#in the head, we can see that the type has changed
+head(layoffs_staging)
+
+```
+
+### Analyze duplicates
+
+```{r}
+# Let's see what the duplicates are in the dataset 
+layoffs_staging[duplicated(layoffs_staging), ]
+
+# remove duplicates 
+layoffs_staging <- layoffs_staging %>% distinct()
+
+# Now, we want to determine if there are any 
+# misspelled or duplicate industry names.
+
+layoffs_staging %>% 
+  count(industry)
+
+# First, we want to make all of the Crypto, Crypto Currency, 
+# and CryptoCurrency to be the same.  
+layoffs_staging <- layoffs_staging %>% 
+  mutate(industry = 
+    case_when(
+      industry == "CryptoCurrency" ~ "Crypto",
+      industry == "Crypto Currency" ~ "Crypto",
+      .default = industry
+    )
+  )
+
+```
+
+### Analyze the NULLs in company
+
+It's important to now that when we imported the csv, all the NULL values became strings called "NULL" instead of the R equivalent, NA. We are lucky that there's no companies, industries, location, or other important entities called NULL that could mix up the data. If there were, we would have to analyze each instance of NULL separately.
+
+```{r}
+# We also want to examine the NULL company to see 
+# if we can somehow this with other categories, 
+# or understand why it is categorized as NULL. 
+
+layoffs_staging %>% 
+  filter(industry %in% c("NULL"))
+
+# the company appears to be an online casino. It falls 
+# most appropriately under the category of "Other" 
+
+layoffs_staging <- layoffs_staging %>% 
+  mutate(
+    industry = 
+      case_when(
+        industry == "NULL" ~ "Other",
+        .default = industry
+      )
+  )
+
+# now we see that the single NULL company is gone. 
+layoffs_staging %>% 
+  filter(industry %in% c("NULL"))
+
+```
+
+### Analyze the NULLs in industry
+
+Upon observation, these companies do fall under industries already in our dataset. In fact, let's check to see if there are any companies that categorize themselves under multiple industries. The same company should not be under different industries.
+
+```{r}
+# let's take a look at all the companies with 
+# NA/blank values for their industry 
+layoffs_staging %>% 
+  filter(is.na(industry))
+
+
+companies <- unique(layoffs_staging$company)
+multipleInd <- c()
+for (com in companies){
+  industries <- layoffs_staging %>% 
+    filter(company == com) %>% 
+    select(industry)
+  uniqueInd <- unique(industries)
+    if (dim(uniqueInd)[1] != 1){
+      multipleInd <- append(multipleInd,com)
+    }
+}
+multipleInd
+
+```
+
+It appears that to remedy this issue, we would need to adjust the company names by entry. If we wanted to populate them automatically, we would fall into an issue. Let's say Airbnb is categorized under "Travel" and "Hospitality"; what is most appropriate? We need to make individual decisions to make sure this is accurate. An easy fix would be to simply use the industry of the first instance of the company in the dataset.
+
+```{r}
+layoffs_staging %>% 
+  filter(company %in% multipleInd)
+
+layoffs_staging <- layoffs_staging %>% 
+  mutate(industry = 
+           case_when(
+             company == "Airbnb" ~ "Travel",
+             company %in% c("100 Thieves", "Glossier", "Juul", "ShareChat") ~ "Consumer",
+             company %in% c("Carta", "Clearco") ~ "Finance",
+             company == "Carvana" ~ "Transportation", 
+             company == "Code42" ~ "Security",
+             company %in% c("Pollen", "Domio") ~ "Travel",
+             company == "Hubilo" ~ "Marketing",
+             company == "LinkedIn" ~ "Recruiting",
+             company == "Noom" ~ "Fitness",
+             company == "Nuri" ~ "Crypto",
+             company == "OneTrust" ~ "Security",
+             company == "PeerStreet" ~ "Real Estate",
+             company == "People.ai" ~ "Sales",
+             company == "RingCentral" ~ "Support", 
+             company == "Wonder" ~ "Food",
+             .default = industry
+           ))
+
+
+```
+
+### Consistency in country names.
+
+Let's look at the different countries represented in our dataset. Note that there is "United States" and "United States.", which is not convenient. Let's change this so that "United States" is the country name, not "United States."
+
+```{r}
+# Let's look at the different countries represented in our dataset.
+layoffs_staging %>% 
+  count(country)
+
+layoffs_staging <- layoffs_staging %>% 
+  mutate(country = 
+           case_when(
+             country == "United States." ~ "United States",
+             .default = country
+           ))
+
+# As expected, there are no longer multiple categories for "United States" 
+layoffs_staging %>% 
+  filter(country == "United States.")
+```
+
+### Change date from a string to date datatype
+
+To make working with our data easier, we should change our date category from text to a date datatype.
+
+I wanted to check and see if there were any NA values. This may indicate that there was a NULL value for the original csv file.
+
+```{r}
+layoffs_staging[1,]
+layoffs_staging$date <- as.Date(layoffs_staging$date, format = "%m/%d/%Y")
+sapply(layoffs_staging, class)
+
+layoffs_staging %>% 
+  filter(is.na(date))
+
+# If we don't have information on the date of being laid off, 
+# then we might choose to not include this data
+# layoffs_staging <- layoffs_staging[(!layoffs_staging$company == "Blackbaud"), ]
+# And now, the company is gone! 
+# layoffs_staging %>% 
+# filter(company == "Blackbaud")
+```
+
+### Adjusting the stage category so that NULL, Other, and Unknown are all NA.
+
+I'm not interested in the distinction between not knowing the stage (Unknown), the stage data not being collected in the first place (NULL), or the stage not fitting into specific categories, which is why I've put them all to NA.
+
+```{r}
+layoffs_staging <- layoffs_staging %>% 
+  mutate(
+    stage = 
+      case_when(
+        stage == "NULL" ~ NA,
+        stage == "Unknown" ~ NA,
+        stage == "Other" ~ NA,
+        .default = stage
+      )
+  )
+```
+
+### What if we don't have information on being laid off?
+
+It's possible that one of the rows in our dataset has neither `total_laid_off` and `percentage_laid_off`, which means that we aren't getting productive information from this row of data. The objective of this dataset is to inform us of the relationship between layoffs and various factors in the dataset, like date or location.
+
+So, let's remove any rows that have neither of the two columns filled in. To do so, I will make a subset of the dataset to include only those rows with `NA` for the `total_laid_off` column and another subset of the dataset to include only those rows with "NULL" for the `percentage_laid_off` column. I didn't yet cast this percentage to string, which is why I'm checking for "NULL" instead of `NA` . I will find the intersection of these two sets, and remove that intersection from the dataset.
+
+```{r}
+# find overlap of NA and null before double casting 
+total_laid_off_na <- subset(layoffs_staging,is.na(total_laid_off))
+percentage_laid_off_na <- subset(layoffs_staging, percentage_laid_off == "NULL")
+both_na <- intersect(total_laid_off_na, percentage_laid_off_na)
+layoffs_staging <- setdiff(layoffs_staging, both_na)
+
+# cast from str to double for the percentage
+layoffs_staging$percentage_laid_off <- as.double(layoffs_staging$percentage_laid_off)
+
+```
+
+### Exploratory graphics
+
+```{r}
+layoffs_staging %>% 
+  group_by(date) %>% 
+  drop_na(total_laid_off) %>% 
+  summarize(sum = sum(total_laid_off)) %>% 
+  ggplot(aes(x = date, y =sum ))+
+  geom_bar(stat = "identity") + 
+  labs(title = "Most layoffs occurred at the end of 2022 and the beginning of 2023", 
+       y = "Total number laid off in one day", 
+       x = "Date")
+  
+
+
+```
+
+```{r}
+layoffs_staging %>% 
+  group_by(industry) %>% 
+  drop_na(total_laid_off) %>% 
+  summarize(sum = sum(total_laid_off)) %>% 
+  ggplot(aes(y= reorder(industry, sum), x =sum, fill = sum))+
+  geom_col(stat = "identity") + 
+  scale_fill_gradient(high="blue",low="lightblue") +
+  labs(title = "The top two industries with the most layoffs were consumer and retail", 
+       y = "Total laid off", 
+       x = "Industry")
+  
+```
+
+### Attempt to show geographically with a map
+
+Previous attempt to make a map of layoffs colored based on the total number of those laid off.
+
+```{#| eval: false}
+world_map <- map_data("world")
+layoffs_staging %>% 
+  group_by(location) %>% 
+  drop_na(total_laid_off) %>% 
+  summarize(sum = sum(total_laid_off)) %>% 
+  ggplot(world_map, aes(x = long, y = lat, group = group, fill=sum)) +
+  geom_polygon()
+```
+
+```{r}
+
+# need to alter data to work here 
+#layoffs.exp.map <- left_join(layoffs_staging, world_map, by = "region")
+world_map <- map_data("world")
+  ggplot(world_map, aes(x = long, y = lat, group = group)) +
+  geom_polygon(fill = "lightgray", colour = "white")
+```
+
+### Attempt to conduct regression analysis
+
+There are 4 assumptions to conduct linear regression; without fulfilling these assumptions, linear regression will not be effective. This includes:
+
+1.  Linearity of the data
+
+    We can determine this by examining a plot of the predictor and response variables
+
+2.  Constant variability of the response variable as the predictor changes
+
+    We can determine this by examining a residual plot of the y-axis and the predicted values on the x-axis
+
+3.  Independent observations
+
+    We can assume that the 3rd condition is met, although this is a little naive. It's possible that previous layoffs can impact future layoffs, but I cannot determine this from the data we have at the moment. This condition is dependent on the nature of your data.
+
+4.  Normality of the residuals.
+
+    Create a normal probability plot (also known as a Q-Q plot) of the residuals.
+
+Since there are more rows which have `total_laid_off` than `percentage_laid_off`, I'll try to use regression to predict the `total_laid_off`.
+
+```{r}
+layoffs_staging %>% 
+  drop_na(total_laid_off) %>% 
+  nrow()
+
+layoffs_staging %>% 
+  drop_na(percentage_laid_off) %>% 
+  nrow()
+```
+
+Of the one quantitative variable I can conduct regression on (`funds_raised_millions`), the correlation is very low, and there doesn't appear to be any clear pattern in the data. Our condition of linearity isn't met. So, this isn't a promising variable to make predictions on.
+
+```{r}
+layoffs_staging %>% 
+  drop_na(total_laid_off, funds_raised_millions) %>% 
+  summarize(cor = cor(total_laid_off, funds_raised_millions))
+
+layoffs_staging %>% 
+  drop_na(total_laid_off, funds_raised_millions) %>% 
+  ggplot(aes(total_laid_off,funds_raised_millions)) + 
+  geom_point(alpha =  0.5, col = "cornflowerblue") +
+  labs(
+    title = "Most layoffs occured for companies with less than $2.5B in funds raised.",
+    x = "Total laid off",
+    y = "Funds raised in millions"
+  )
+
+```
+
+It seems that across the different stages a company can be in, some stages have more laid off than others, which can be a good start to analyzing this data.
+
+```{r}
+layoffs_staging %>% 
+  drop_na(total_laid_off, funds_raised_millions) %>% 
+  summarize(cor = cor(total_laid_off, funds_raised_millions))
+
+layoffs_staging %>% 
+  drop_na(total_laid_off, stage) %>% 
+  ggplot(aes(total_laid_off, stage)) + 
+  geom_point(alpha =  0.5, col = "cornflowerblue") +
+  labs(
+    title = "Most layoffs occured for companies that are post-IPO.",
+    x = "Total number laid off",
+    y = "Company stage",
+  )
+
+```
+
+This model attempts to explain the number of those laid off based on the stage of a company. We can interpret the coefficients and information provided:
+
+-   The intercept represents the number of people that would be laid off if a company was not in any of these stage categories.
+
+-   For a given category x, the $\beta$ coefficient represents the average increase in the number of those laid off if a company is in that category.
+
+So, `stage: Post-IPO` means that the average number of those laid off from a company that is in the Post-IPO stage is approximately 433 more than the average number of those laid off from a company that isn't classified under any business stage (which is approximately 240).
+
+To understand how much of the variation in the response variable (or, the trends in the number of people laid off) is explained by our linear regression model, we can calculate the $R^2$ value, which is calculated by taking $$\frac{\textrm{Var}(\widehat{\textrm{predicted number of those laid off}})}{\textrm{Var}(\textrm{number of those laid off})}$$
+
+We can also use the adjusted $R^2$ value, which is calculated similar to the $R^2$ value, but has an additional penalty term which ensures that the measure will not increase if the predictor (in this case, business stage) does not contribute much to explaining the variation in the response (number of those laid off).
+
+We see here that the $R^2$ value is 0.08 and the adjusted $R^2$ value is 0.07. This means that between 7-8% of the variation in the number of those laid off is explained by their business stage.
+
+We can also interpret the p-value for this $R^2$ value. It is the probability that we would receive this $R^2$ value at random for the model at hand. Since the p-value is incredibly small, this means that it is unlikely we would receive this $R^2$ value at random for the model and data that we have available.
+
+But this doesn't sound great–we would like to have a model that's more effective. Let's investigate one possible reason why this model did not work effectively.
+
+```{r}
+model <- lm(total_laid_off ~ stage, data = layoffs_staging)
+get_regression_table(model)
+glance(model)
+
+```
+
+As we can see from the residuals, the variance is not constant. The vertical spread of the points is not constant; closer to the 600 mark on the x axis, we can see that there is a wide spread in variability. So, second condition (of constant variability) for using this model fails.
+
+```{r}
+library(gglm)
+ggplot(model) + 
+  stat_fitted_resid(alhpa = 0.4)
+```
+
+We can continue to make many types of models from the factors that we have in our data set. Unfortunately, we will find that linear regression and multiple linear regression are all ineffective ways to model our data (as evaluated by the $R^2$ and adjusted $R^2$ values). In the following code blocks, I will provide the linear regression model, the $R^2$ and adjusted $R^2$ values, and a graphic captioned with the reasoning why this model failed.
+
+```{r}
+model4 <- lm(total_laid_off ~ date, data = layoffs_staging)
+get_regression_table(model4)
+glance(model4)
+
+layoffs_staging %>% 
+  drop_na(total_laid_off, date) %>% 
+  ggplot(aes( date, total_laid_off)) + 
+  geom_point(alpha =  0.5, col = "cornflowerblue") + 
+  stat_smooth(method = lm, formula = y ~ x)+ 
+  labs(
+    title = "Attempting to predict number of laid off using date of layoff", 
+    caption = "We find that there isn't any linear trend in our data, \nso we do not meet the initial condition of having a linear trend in our data to support this model. "
+  )
+
+
+```
+
+```{r}
+
+model5 <- lm(total_laid_off ~ industry, data = layoffs_staging)
+get_regression_table(model5)
+glance(model5)
+
+ggplot(model5) + 
+  stat_normal_qq(alpha = 0.4) + 
+  labs(caption = "In the right tail, we see that there are severe deviations at the end of the tails and \n that this deviation starts around 1.2 on the x-axis. This means that our residuals don't follow \n a normal distribution and do not fulfill our fourth condition.")
+```
+
+```{r}
+model6 <- lm(total_laid_off ~ location, data = layoffs_staging)
+get_regression_table(model6)
+glance(model6)
+ggplot(model6) + 
+  stat_fitted_resid(alpha = 0.4) + 
+  labs(caption = "We can clearly see that the residuals do not have constant variability along the x axis,\n indicating that we do not have our second condition for the model fulfilled. ")
+
+```
+
+```{r}
+model7 <- lm(total_laid_off ~ country, data = layoffs_staging)
+get_regression_table(model7)
+glance(model7)
+ggplot(model7) + 
+  stat_fitted_resid(alpha = 0.4) + 
+  labs(caption = "We can see that the residuals do not have constant variability,\n meaning that the second condition isn't fulfilled. ")
+
+```
+
+```{r}
+tibble(layoffs_staging)
+```
+
+I will also provide an interpretation for some of the coefficients in the multiple linear regression models. I tried both equal slopes and varying slopes with a few factors, but given that our initial assumptions for linear regression weren't met, this is more meant as an exercise in interpretation. I do not expect (as I find in my models) that MLR is effective in predicting the number of those laid off.
+
+In the following model, which is an equal slopes model, the
+
+-   intercept means that for a layoff for a company that is not in a stage or a country, the number of those laid off is, on average, approximately 212.
+
+-   $\beta$ value for `stage: Post-IPO` means that being a company with a business stage of Post-IPO leads to an average 447 increase in the size of the layoff, keeping the country constant.
+
+-   $\beta$ value for `country: China` means that being a company located in China leads to an average 338 increase in the size of the layoff, keeping business stage constant.
+
+An equal slopes model assumes that the relationship between the total number of those laid off and the business stage does not depend on country, and the total number of those laid off and the country does not depend on the business stage.
+
+```{r}
+
+model2 <- lm(total_laid_off ~ stage + country, data = layoffs_staging)
+get_regression_table(model2)
+glance(model2)
+
+
+```
+
+This, on the other hand, is a varying slopes model. This assumes that the relationship between the total number of those laid off and business stage differs based on the country; similarly, the relationship between the total number of those laid off and country differs based on the business stage.
+
+The $\beta$ value for `stage: Post-IPO, country: Australia` means that a business in the Post-IPO stage is associated with a 441 decrease in the size of layoff for a business in Australia compared to a business in the Post-IPO stage that is not in Australia.
+
+```{r}
+model3 <- lm(total_laid_off ~ stage * country, data = layoffs_staging)
+get_regression_table(model3)
+glance(model3)
+```
